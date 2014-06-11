@@ -1,0 +1,61 @@
+#!/bin/bash
+
+NEF_LXC_CONFIG_TEMPLATE_DIR=/etc/lxc/nef-template
+NEF_LXC_CONFIG_TEMPLATE_EXTENSION=template.conf
+NEF_LXC_CONFIG_INSTALL_TEMPLATE=debian2
+NEF_LXC_CONFIG_INSTALL_TEMPLATE_ARGS=""
+
+. /usr/share/bash-nef/util
+
+lxcname=$1
+
+show_usage()
+{
+    echo "usage: $0 [name]"
+}
+
+[ "$lxcname" = "" ] && {
+    echo "Available containers:"
+    lxc-ls | sed 's/^/  /'
+    echo
+    echo "Available templates:"
+    for f in $NEF_LXC_CONFIG_TEMPLATE_DIR/*.$NEF_LXC_CONFIG_TEMPLATE_EXTENSION; do
+        basename $f .$NEF_LXC_CONFIG_TEMPLATE_EXTENSION | sed 's/^/  /'
+    done
+    exit 0
+}
+
+templatePath=$NEF_LXC_CONFIG_TEMPLATE_DIR/$lxcname.$NEF_LXC_CONFIG_TEMPLATE_EXTENSION
+
+[ -r "$templatePath" ] || nef_fatal "could not read: $templatePath"
+
+lxc-ls | grep -q $lxcname && nef_fatal "container already exists: $lxcname"
+
+nef_shell_eval_file "$templatePath"
+
+command="lxc-create -n $lxcname -f $templatePath -t $NEF_LXC_CONFIG_INSTALL_TEMPLATE -- $NEF_LXC_CONFIG_INSTALL_TEMPLATE_ARGS"
+echo "About to execute:"
+echo "$command"
+echo
+read -p "Are you sure? [y/n]" -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]
+then
+    $command
+else
+    exit 2
+fi
+
+if [ $? -ne 0 ]; then
+    echo "failed to create container"
+    exit 3
+fi
+
+ln -s /var/lib/lxc/$lxcname /etc/lxc/auto/$lxcname
+echo Created symlink /etc/lxc/auto/$lxcname
+
+echo "Starting container as daemon..."
+lxc-start -n $lxcname -d
+
+echo "Finishing configuration through SSH..."
+ssh $lxcname "sysconf update"

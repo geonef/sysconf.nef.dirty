@@ -1,0 +1,11 @@
+# NEF SERVICE 'aire'               -*- shell-script -*-
+
+NEF_SERVICE_NUMBER=17
+NEF_SERVICE_FS_SIZE=10G
+NEF_SERVICE_SYSCONF=nef.service.aire
+
+NEF_SERVICE_UPDATE()
+{
+    echo "aire UPDATE ==================="
+    nef_service_common_update
+}

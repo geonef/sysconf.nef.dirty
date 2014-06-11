@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# Register a new version in MongoDB collection AppVersion
+# referencing a GIT tag
+
+. /etc/cloud-nef/include/bootstrap
+
+show_usage()
+{
+    echo "usage: $0 <cloud> <appName> [git-tree-ref]"
+}
+
+cloudName="$1"
+appName="$2"
+tagName="$3"
+
+
+[ "$cloudName" = "" ] && nef_usage_error
+[ "$appName" = "" ] && nef_usage_error
+[ "$tagName" = "" ] && tagName="master"
+
+nef_load_cloud $cloudName
+nef_load_cloud_app $appName
+
+# Find commit ID and app ID
+line=$(git ls-remote --tags --exit-code $NEF_CLOUD_APP_GIT_PATH $tagName)
+[ "$?" -eq 0 ] || nef_fatal "tag '$tagName' not found by command: git ls-remote --tags --exit-code $NEF_CLOUD_APP_GIT_PATH $tagName"
+commitID=`echo $line | sed 's/ .*//'`
+tagName=`echo $line | sed 's/.*\/tags\///'`
+
+appId=$(mongoexport $CLOUD_NEF_MONGODB_COMMON_OPTIONS --db $NEF_CLOUD_MONGO_DATABASE --collection App --query "`nef_template_apply_file $CLOUD_NEF_ETC_DIR/template/mongodb.query.App.json`" --csv --fields _id 2>/dev/null | tail -n +2 | sed 's/ObjectID(\(.*\))/\1/')
+
+nef_log "CLOUD='$cloudName' APP='$appName' APP ID='$appId'"
+nef_log "TAG='$tagName' COMMIT='$commitID'"
+
+# Check if version already exists
+versionLine=$(mongoexport $CLOUD_NEF_MONGODB_COMMON_OPTIONS --db $NEF_CLOUD_MONGO_DATABASE --collection AppVersion --query "$(nef_template_apply_file $CLOUD_NEF_ETC_DIR/template/mongodb.query.AppVersion.json)" --csv --fields _id,gitPath,gitTag,gitCommit 2>/dev/null | tail -n +2 | head -n 1)
+
+[ "$versionLine" = "" ] || nef_fatal "version already exists for app ID '$appId' and commit '$commitID'"
+
+
+# Determine a unique codeNumber
+check_codeNumber()
+{
+    local _line=$(mongoexport $CLOUD_NEF_MONGODB_COMMON_OPTIONS --db $NEF_CLOUD_MONGO_DATABASE --collection AppVersion --query "$(nef_template_apply_file $CLOUD_NEF_ETC_DIR/template/mongodb.query.AppVersion.codeNumber.json)" --csv --fields _id 2>/dev/null | tail -n +2 | head -n 1)
+
+    [ "$_line" != "" ]
+    return
+}
+declare -i codeNumber=1
+while check_codeNumber; do
+    codeNumber=$((codeNumber+1))
+done
+nef_log "codeNumber = $codeNumber"
+
+# Insert AppVersion document
+mongoDocVersion=$(nef_template_apply_file $CLOUD_NEF_ETC_DIR/template/mongodb.document.AppVersion.json)
+
+echo "Inserting AppVersion into MongoDB database '$NEF_CLOUD_MONGO_DATABASE':"
+echo "$mongoDocVersion"
+echo "db.AppVersion.insert($mongoDocVersion)" | mongo $CLOUD_NEF_MONGODB_COMMON_OPTIONS --quiet $NEF_CLOUD_MONGO_DATABASE
+
+nef_log "SUCCESSFULLY REGISTERED AppVersion for commit $commitID (tag '$tagName')"

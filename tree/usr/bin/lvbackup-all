@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# lvbackup call script - see "lvbackup" script
+#
+# By Okapi - 2010-09-29
+#
+
+for vol in /etc/lvbackup/volumes-enabled/*; do
+    echo $vol | grep -q '~$' && continue
+    lvbackup "$vol"
+done

@@ -1,0 +1,15 @@
+#!/bin/bash
+
+baseDir=/var/lib/git-nef
+
+cd $baseDir
+
+for repos in `find -type d -and -name '*.git' | sed 's/^\.\///'`; do
+    n=nef-primary:$repos
+    cd $repos
+    #git remote add primary $n
+    #echo $n
+    echo "In: $repos"
+    "$@"
+    cd $baseDir
+done

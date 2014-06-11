@@ -1,0 +1,144 @@
+#!/bin/bash
+#
+# lvbackup - automatic filesystem backup using LVM snapshots
+#
+# This script must be called with one argument, which is the
+# name of the VOLUME file, either in to $VOLUMES_DIR, or as
+# and absolute or relative (to cwd) path.
+#
+# By Okapi - Created on 2010-09-29
+#
+# TODO: fsck backup FS before mounting
+#
+
+ETC_DIR=/etc/lvbackup
+CONFIG_PATH="$ETC_DIR/settings.conf"
+VOLUMES_DIR="$ETC_DIR/volumes-available"
+SNAPSHOT_NAME="lvbackup-snapshot"
+SNAPSHOT_MOUNT_POINT=/mnt/lvbackup-snapshot
+MAIN_LOG_FILE=/var/log/lvbackup.log
+BACKUP_LOG_REL_DIR=backups-logs
+DEFAULT_CONF_FILE=/etc/default/lvbackup
+
+[ -f $DEFAULT_CONF_FILE ] && . $DEFAULT_CONF_FILE
+
+
+log() {
+    txt="$*"
+    _IFS="$IFS"
+    IFS=$'\n'
+    for line in $txt; do
+        #echo "`date +'%Y-%m-%d %H:%M:%S'`: $line" | tee -a $MAIN_LOG_FILE
+        echo "`date +'%Y-%m-%d %H:%M:%S'`: $line" >> $MAIN_LOG_FILE
+    done
+    IFS="$_IFS"
+}
+
+fatal_error() {
+    log "ERROR: $*"
+    log "exiting..."
+    cleanup
+    log "-----------------------------------"
+    exit 1;
+}
+
+do_checks() {
+    lvdisplay -c | grep -q $SNAPSHOT_NAME && fatal_error "LVM snapshot \"$SNAPSHOT_NAME\" exists!"
+    grep -q $BACKUP_DIR /proc/mounts && fatal_error "backup dir must not be mounted - it will be automatically if needed (from /etc/fstab): $BACKUP_DIR"
+    log "initial check OK"
+}
+
+cleanup() {
+    # Unmount snapshot & backup, remove snapshot
+    grep -q $SNAPSHOT_MOUNT_POINT /proc/mounts && {
+        log "`\df -P $SNAPSHOT_MOUNT_POINT | grep -v '^Filesystem'`"
+        log "unmounting $SNAPSHOT_MOUNT_POINT..."
+        umount $SNAPSHOT_MOUNT_POINT
+    }
+    grep -q $BACKUP_DIR /proc/mounts && {
+        log "`\df -P $BACKUP_DIR | grep -v '^Filesystem'`"
+        log "unmounting $BACKUP_DIR..."
+        umount $BACKUP_DIR
+    }
+    [ -n "$snapshot_device" ] && lvdisplay -c | grep -q $snapshot_device && {
+        log "removing snapshot $snapshot_device..."
+        lvremove -f $snapshot_device >> $MAIN_LOG_FILE
+    }
+}
+
+#on_signal() {
+#    fatal_error "received signal"
+#}
+
+PRE_SNAPSHOT_CREATION() {
+    log "nothing to do before snapshot creation"
+}
+POST_SNAPSHOT_CREATION() {
+    log "nothing to do after snapshot creation"
+}
+
+#trap on_signal SIGINT SIGTERM
+
+date="`date '+%Y%m%d_%H%M%S'`"
+volume="$1"
+
+if echo $volume | grep -q /; then
+    volume_file="$1"
+else
+    volume_file="$VOLUMES_DIR/$volume"
+fi
+
+[ -f "$volume_file" ] || fatal_error "volume file does not exist: $volume_file"
+
+log "starting $0 with volume file: $volume_file"
+
+. $volume_file
+
+BACKUP_LOG_DIR=$BACKUP_DIR/$BACKUP_LOG_REL_DIR
+
+[ "$ENABLED" = "YES" ] || fatal_error "volume is not enabled: $volume"
+
+do_checks
+
+# Prepare target backup dir
+grep -q $BACKUP_DIR /etc/fstab && {
+    log "mounting backup dir: $BACKUP_DIR"
+    mount $BACKUP_DIR
+}
+[ -d $BACKUP_LOG_DIR ] || \
+( log "creating backup log dir: $BACKUP_LOG_DIR"; mkdir $BACKUP_LOG_DIR)
+
+# Create snapshot
+PRE_SNAPSHOT_CREATION
+group=`lvdisplay -c $LV_DEVICE | cut -d: -f2`
+snapshot_device=/dev/$group/$SNAPSHOT_NAME
+log "volume \"$LV_DEVICE\" belongs to group: \"$group\""
+log "creating snapshot \"$SNAPSHOT_NAME\" of size \"$SNAPSHOT_SIZE\"..."
+lvcreate --snapshot --size $SNAPSHOT_SIZE --name $SNAPSHOT_NAME $LV_DEVICE >> $MAIN_LOG_FILE || fatal_error "failed to create snapshot!"
+fsck -y $snapshot_device >> $MAIN_LOG_FILE 2>&1
+POST_SNAPSHOT_CREATION
+
+# Create $SNAPSHOT_MOUNT_POINT if needed
+[ -d $SNAPSHOT_MOUNT_POINT ] || mkdir $SNAPSHOT_MOUNT_POINT
+
+# Check that $SNAPSHOT_MOUNT_POINT is free
+grep -q $SNAPSHOT_MOUNT_POINT /proc/mounts && fatal_error "snapshot mount point already mounted with another FS: $SNAPSHOT_MOUNT_POINT"
+
+# Mount the snapshot
+log "mounting $snapshot_device on $SNAPSHOT_MOUNT_POINT..."
+mount $snapshot_device $SNAPSHOT_MOUNT_POINT || fatal_error "failed to mount snapshot \"$snapshot_device\" on \"$SNAPSHOT_MOUNT_POINT\""
+
+# Get disk usage
+log "`\df -P $SNAPSHOT_MOUNT_POINT | grep -v '^Filesystem'`" | tee -a $BACKUP_LOG_DIR/diskusage.log
+log "`\df -P $BACKUP_DIR | grep -v '^Filesystem'`" | tee -a $BACKUP_LOG_DIR/diskusage.log
+
+# Make the backup
+log "making backup..."
+log "rsync -avxz --delete $SNAPSHOT_MOUNT_POINT/ $BACKUP_DIR/ >$BACKUP_LOG_DIR/$date.rsync.log 2>&1"
+rsync -avxz --delete $SNAPSHOT_MOUNT_POINT/ $BACKUP_DIR/ >$BACKUP_LOG_DIR/$date.rsync.log 2>&1 || echo "rsync failed: check " $BACKUP_LOG_DIR/$date.rsync.log
+
+# Cleanup
+cleanup
+
+log "script ending successfully"
+log "-----------------------------------"

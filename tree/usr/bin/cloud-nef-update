@@ -1,0 +1,18 @@
+#!/bin/bash
+#
+
+. /etc/cloud-nef/include/bootstrap
+
+show_usage() {
+    echo "usage: $0 [cloud]"
+}
+
+CLOUDS="$1"
+[ "$CLOUDS" = "" ] && CLOUDS=$(cloud_nef_list_clouds)
+
+for cloud in $CLOUDS; do
+    (
+        nef_load_cloud $cloud
+        nef_hook_run CLOUD_NEF_HOOKS_UPDATE
+    )
+done

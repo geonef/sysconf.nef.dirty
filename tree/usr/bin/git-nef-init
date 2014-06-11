@@ -1,0 +1,16 @@
+#!/bin/bash
+
+baseDir=/var/lib/git-nef
+
+cd $baseDir
+
+git_nef_init() {
+    dir="$1"
+    git init --bare --shared $dir && {
+        chown -R geonef.geonef $dir
+        find $dir -type d -exec chmod g+s {} \;
+        chmod -R g+w $dir
+    }
+}
+
+git_nef_init "$1"

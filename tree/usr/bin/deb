@@ -1,0 +1,22 @@
+#!/bin/bash
+
+. /usr/share/bash-nef/util
+
+name="$1"
+
+[ "x$name" = "x" ] && fatal_error "usage: $0 <package-name>"
+
+dpkg -l | grep "$name" || {
+    echo "Package '$name' is not installed"
+
+    if apt-cache showpkg "$name"; then
+        echo
+        nef_confirm "Install package '$name'" && \
+            apt-get install "$name"
+    else
+        echo "Not found in apt-cache. Searching..."
+        echo
+        apt-cache search "$name"
+    fi
+    
+}

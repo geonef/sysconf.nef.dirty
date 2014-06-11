@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+
+. /etc/cloud-nef/include/bootstrap
+
+show_usage() {
+    echo "usage: $0 [cloud]"
+}
+
+CLOUDS="$1"
+[ "$CLOUDS" = "" ] && CLOUDS=$(cloud_nef_list_clouds)
+
+info_app()
+{
+    nef_foreach_app_versions info_app_version
+    nef_log "  App '$appName' ID '$appId'"
+}
+
+info_app_version()
+{
+    nef_log "    Version TAG='$tagName' COMMIT='$commitID'"
+}
+
+for cloud in $CLOUDS; do
+    (
+        nef_load_cloud $cloud
+        nef_log "CLOUD '$cloudName' DB '$NEF_CLOUD_MONGO_DATABASE' ROOT '$NEF_CLOUD_APP_INSTALL_ROOT'"
+        nef_foreach_apps info_app
+    )
+done

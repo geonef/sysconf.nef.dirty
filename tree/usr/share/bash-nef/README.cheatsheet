@@ -1,0 +1,65 @@
+# User cheatsheet for bash manipulation                 -*- shell-script -*-
+#
+# JF Gigand <jf@geonef.fr>
+#       20140126 creation
+#
+# Use it in test scripts:
+#   . /usr/share/bash-nef/README.cheatsheet
+
+
+. /usr/share/bash-nef/util
+
+
+##################################################
+# Debug helpers
+
+_nef_debug_args()
+{
+    echo "Printing ${#} arg(s):"
+    for i in "$@"; do
+        echo "  arg: '$i'"
+    done
+}
+
+_nef_debug_ifs()
+{
+    echo "-- BEGIN \$IFS --------------------------"
+    echo -n "$IFS" | hexdump -Cv
+    echo "---- END \$IFS --------------------------"
+}
+
+##################################################
+# Demos
+
+_nef_demo_array()
+{
+    # http://tldp.org/LDP/abs/html/arrays.html
+
+    # Declare an associative array:
+    #   declare -A name
+
+    # Changing IFS has no impact upon this declaration:
+    local array1=(item1 item2   item3
+        item4)
+
+    # will only give "item1" (1 arg)
+    _nef_debug_args $array1
+
+    # double-quoted [*] expands to single word
+    _nef_debug_args "${array1[*]}"
+
+    # double-quoted [@] expands to single-item words
+    _nef_debug_args "${array1[@]}"
+
+
+    nef_array_from_lines array2 "L1W1 L1W2
+L2W1 L2W2
+L3W1 L3W2"
+
+    declare -p array2
+
+    # double-quoted [*] expands to single word
+    _nef_debug_args "${array2[*]}"
+    # double-quoted [@] expands to single-item words
+    _nef_debug_args "${array2[@]}"
+}

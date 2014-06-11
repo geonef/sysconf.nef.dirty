@@ -1,0 +1,40 @@
+#!/bin/bash
+
+SYSCONF_USER_COMMON_DIR=/etc/sysconf-users
+
+user="$1"
+[ "x$user" = "x" ] && {
+    echo "usage: $0 <username>"
+    echo
+    echo "$0 will install into <username>'s home all symlinks for targetting files"
+    echo "in $SYSCONF_USER_COMMON_DIR/<username>."
+    echo "Think of it as a keep-in-sync skeleton stored in $SYSCONF_USER_COMMON_DIR."
+    exit -1
+}
+
+home=$(getent passwd "$user" | cut -d: -f6)
+
+[ "x$home" = "x" ] && {
+    echo "user does not exist: $user"
+    exit 1
+}
+
+[ -d "$home" ] || {
+    echo "user home does not exist: $home"
+    exit 2
+}
+
+home_etc=$SYSCONF_USER_COMMON_DIR/$user
+
+[ -d "$home_etc" ] || {
+    echo "user common dir does not exist: $home_etc"
+    exit 3
+}
+
+echo "processing user '$user' on home directory '$home' from: $home_etc"
+echo
+
+shopt -s dotglob
+# option "-i" ?
+cp -srv $home_etc/* $home/
+

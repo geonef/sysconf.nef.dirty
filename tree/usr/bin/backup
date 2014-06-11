@@ -1,0 +1,107 @@
+#!/bin/bash
+#
+# bin/backup - rsync-based backup utility
+#
+# By JF Gigand <jf@geonef.fr> on october 2011
+#
+#
+# TODO:
+# * use --skip-compress (useless, default is ok)
+# * use --hard-links and implement incremental backups
+#
+#
+# Mandatory in /etc/default/backup: BACKUP_MOUNT_POINT
+# Mandatory in /etc/backup/$BACKUP_NAME: BACKUP_HOST_SHORT, BACKUP_HOST_FULL, BACKUP_DIRS
+#
+# BACKUP_MOUNT_POINT
+#       Mount point of backup device
+#
+# BACKUP_HOST_SHORT
+#       Backup dir relative to mount point
+#
+# BACKUP_HOST_FULL
+#       Host to connect to (given to rsync)
+#
+# BACKUP_DIRS
+#       Directories to backup
+#
+# BACKUP_IS_INCREMENTAL
+#       Whether incremental mode is enabled (default: "no")
+
+. /usr/share/bash-nef/util
+
+BACKUP_RSYNC_OPTIONS="-avxzi --stats"
+BACKUP_IS_INCREMENTAL=no
+
+BACKUP_NAME="$1"
+shift
+BACKUP_CONF_FILE=/etc/backup/$BACKUP_NAME.conf
+DEFAULT_CONF_FILE=/etc/default/backup
+
+[ -f $DEFAULT_CONF_FILE ] && . $DEFAULT_CONF_FILE
+[ -f $BACKUP_CONF_FILE ] || fatal_error Config file does not exist: $BACKUP_CONF_FILE
+. $BACKUP_CONF_FILE
+
+if test "$LOG_DIR" = ""; then
+    LOG_DIR=$BACKUP_MOUNT_POINT/log
+fi
+
+if test "$BACKUP_HOST_DIR" = ""; then
+    BACKUP_HOST_DIR=$BACKUP_MOUNT_POINT/$BACKUP_HOST_SHORT
+fi
+
+if test "$LOG_FILE" = ""; then
+    LOG_FILE=$LOG_DIR/$BACKUP_HOST_SHORT.`date +'%Y%m%d-%H%M%S'`.log
+fi
+
+
+BEFORE_BACKUPS
+
+for dir in $BACKUP_DIRS; do
+
+    bdir=`echo $dir | sed 's/\//-/g'`
+    base_dest_dir="$BACKUP_HOST_DIR/$bdir"
+    dest_dir="$base_dest_dir"
+
+    link_dest_opt=""
+    if test "$BACKUP_IS_INCREMENTAL" = "yes"; then
+        present=`date +'%Y%m%d-%H%M%S'`
+        dest_dir="$base_dest_dir/$present";
+        log INCREMENTAL: using dest dir: $dest_dir
+        mkdir -p $base_dest_dir
+        if test -L $base_dest_dir/last; then
+            link_dest_opt="--link-dest=../last/"
+        else
+            log "INCREMENTAL: no 'last' directory, --link-dest option not given"
+        fi
+    fi
+
+    if test "$BACKUP_HOST_FULL" = "localhost"; then
+        src_dir="/$dir"
+    else
+        src_dir="$BACKUP_HOST_FULL:/$dir"
+    fi
+
+    command="time rsync $BACKUP_RSYNC_OPTIONS $link_dest_opt $* $src_dir/ $dest_dir/"
+
+    log START COMMAND: $command
+    if $command 2>&1 | tee -a $LOG_FILE; then
+      log SUCCESSFUL END COMMAND: $command
+    else
+      code=$?
+      log FAILED COMMAND: $command
+      fatal_error rsync failed with status code $code ; exiting...
+    fi
+
+    if test "$BACKUP_IS_INCREMENTAL" = "yes"; then
+        if test -L $base_dest_dir/last; then
+            log INCREMENTAL: removing symlink $base_dest_dir/last
+            rm -f $base_dest_dir/last
+        fi
+        log INCREMENTAL: setting symlink $base_dest_dir/last to $present
+        ln -s $present $base_dest_dir/last
+    fi
+
+done
+
+AFTER_BACKUPS
