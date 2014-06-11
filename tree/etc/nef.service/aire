@@ -8,4 +8,57 @@ NEF_SERVICE_UPDATE()
 {
     echo "aire UPDATE ==================="
     nef_service_common_update
+    nef_service_aire_update_common_deps
+    nef_service_aire_update_instance_all
+}
+
+nef_service_aire_update_common_deps()
+{
+    pear channel-discover pear.swiftmailer.org && \
+        pear remote-list -c swift && \
+        pear install swift/Swift
+}
+
+nef_service_aire_update_instance_all()
+{
+    for instanceKey in ${NEF_SERVICE_AIRE_INSTANCES[@]}; do
+        for paramKey in SERVERNAME DIR ENV CONFIG_EXTRA; do
+            sourceVN=NEF_SERVICE_AIRE_INSTANCES_${instanceKey}_${paramKey}
+            targetVN=NEF_SERVICE_AIRE_${paramKey}
+            eval "${targetVN}='${!sourceVN}'"
+        done
+
+        nef_service_aire_update_instance_one
+
+        #NEF_SERVICE_AIRE_INSTANCE_SERVERNAME=$k
+        #nef_foreach_version nef_service_http_update_nginx_generate_one >$nginxConf
+
+    done
+
+    apachectl -S && apachectl graceful
+}
+
+nef_service_aire_update_instance_one()
+{
+    nef_cloud_log "Installing AIRE website: ${NEF_SERVICE_AIRE_SERVERNAME}"
+
+    [ -d ${NEF_SERVICE_AIRE_DIR} ] || \
+        git clone ${NEF_SERVICE_AIRE_GIT_REMOTE_URL} ${NEF_SERVICE_AIRE_DIR} || \
+        nef_fatal "git clone failed"
+
+    cd ${NEF_SERVICE_AIRE_DIR} || nef_fatal "dir not found"
+    git submodule init
+    git submodule update
+
+    [ -h app/instance ] || ln -s instances/${NEF_SERVICE_AIRE_ENV} app/instance
+
+    app/console zig:install:update-public
+    app/console zig:install:build-openlayers
+    app/console zig:init-translations
+    app/console zig:install:run-shrinksafe
+
+    # confName=${NEF_SERVICE_AIRE_SERVERNAME}.conf
+    # nef_cloud_log "generating HTTP host config: /etc/apache2/sites-available/$confName"
+    # nef_template_apply_file /usr/share/templates/nef.service.aire/etc.apache2.vhost.conf \
+    #     > /etc/apache2/sites-enabled/$confName
 }
